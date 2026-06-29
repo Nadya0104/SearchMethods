@@ -1,0 +1,231 @@
+# Bounded Suboptimal Search on the 15-Puzzle
+### Comparing Weighted A\*, Focal Search, and EES Across Heuristic Families
+
+---
+
+## Project Structure
+
+```
+SEARCHMETHODS/
+├── domain/
+│   ├── puzzle.py            # State representation, moves, goal test
+│   └── generator.py         # Random instance generation by difficulty
+├── heuristics/
+│   ├── manhattan.py         # Manhattan Distance
+│   ├── linear_conflict.py   # Linear Conflict (MD + row/col penalties)
+│   ├── pdb.py               # Disjoint Pattern Database (5-5-5 partition)
+│   └── d_hat.py             # Inadmissible distance-to-go estimators for EES
+├── algorithms/
+│   ├── weighted_astar.py    # Weighted A* (f = g + ε·h)
+│   ├── focal_search.py      # Focal Search (OPEN + FOCAL lists)
+│   └── ees.py               # Explicit Estimation Search (3 queues)
+├── experiments/
+│   ├── harness.py           # Runs all combinations, writes CSV
+│   ├── analyze.py           # Loads CSV, produces plots and summary table
+│   └── results/             # Output CSVs and plots land here
+├── tests/
+│   ├── test_phase1.py       # Domain, heuristic, algorithm unit tests
+│   ├── test_phase2.py       # LC, PDB, d_hat tests
+│   └── test_phase3.py       # Harness and analysis pipeline tests
+└── requirements.txt
+```
+
+---
+
+## Setup
+
+```bash
+# Clone / copy the project, then:
+cd SEARCHMETHODS
+python -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate
+pip install -r requirements.txt   # pytest, matplotlib, pandas
+```
+
+---
+
+## Running the Tests
+
+```bash
+cd SEARCHMETHODS
+
+# All 80 tests (Phases 1–3), takes ~2 minutes
+python -m pytest tests/ -v
+
+# Individual phases
+python -m pytest tests/test_phase1.py -v   # ~10s  — domain + algorithms
+python -m pytest tests/test_phase2.py -v   # ~60s  — heuristics (builds PDB)
+python -m pytest tests/test_phase3.py -v   # ~40s  — harness + plots
+```
+
+---
+
+## Running the Experiments
+
+### Step 1 — Quick smoke test (recommended first)
+
+No PDB, 3 easy + 3 medium instances, 2 epsilon values. Completes in ~1 minute.
+
+```bash
+python experiments/harness.py --smoke
+```
+
+This verifies everything works end-to-end and writes a small CSV to
+`experiments/results/results_<timestamp>.csv`.
+
+---
+
+### Step 2 — Full experiment (for your report)
+
+```bash
+python experiments/harness.py --pdb-cache pdb_cache.pkl
+```
+
+What this does, in order:
+1. **Builds the PDB** (first run only, ~50 seconds). Saves to `pdb_cache.pkl`.
+   On subsequent runs it loads from cache in ~1 second.
+2. **Pre-computes optimal costs** via A\* (w=1) for each instance,
+   so the suboptimality ratio column is populated.
+3. **Runs all combinations**:
+   - 3 algorithms × 3 heuristics × 4 ε values × 20 instances × 3 difficulties
+   - = 2,160 individual solver calls
+4. Writes results **incrementally** to CSV (safe if interrupted).
+
+Expected total runtime: **30–90 minutes** depending on your CPU.
+Hard instances with tight bounds (ε=1.1, MD heuristic) are the slowest.
+
+---
+
+### Step 3 — Skip the PDB (faster, for iteration)
+
+If you want results quickly without waiting for PDB:
+
+```bash
+python experiments/harness.py --no-pdb
+```
+
+Runs 3 algorithms × 2 heuristics (MD + LC) × 4 ε × 60 instances = 1,440 calls.
+Expected runtime: **10–20 minutes**.
+
+---
+
+### Additional CLI options
+
+```bash
+# Control instance counts
+python experiments/harness.py --n-easy 30 --n-medium 30 --n-hard 30
+
+# Skip optimal cost computation (saves time, loses subopt_ratio column)
+python experiments/harness.py --no-optimal
+
+# Custom output path
+python experiments/harness.py --output my_results.csv
+
+# Custom random seed (for reproducibility)
+python experiments/harness.py --seed 123
+```
+
+---
+
+## Analysing the Results
+
+```bash
+python experiments/analyze.py experiments/results/results_<timestamp>.csv
+```
+
+Produces the following plots in the same directory as the CSV:
+
+| File | What it shows |
+|------|---------------|
+| `nodes_vs_epsilon.png` | Nodes expanded vs ε, one subplot per heuristic, lines per algorithm |
+| `time_vs_epsilon.png` | Wall-clock time vs ε, same layout |
+| `subopt_ratio.png` | Actual cost/optimal vs ε — verifies the bound is respected |
+| `heuristic_comparison.png` | Grouped bar chart: heuristic quality vs nodes, at fixed ε=1.5 |
+| `solve_rate.png` | Fraction of instances solved within timeout, all difficulties |
+
+And prints a summary table to stdout:
+
+```
+Heuristic: Manhattan Distance
+  Algorithm            ε=1.1    ε=1.5    ε=2.0    ε=3.0
+  ──────────────────────────────────────────────────────
+  Weighted A*          12430     3821      891      204
+  Focal Search          8910     2340      710      180
+  EES                   9100     2560      730      190
+...
+```
+
+### Focus on a specific difficulty or epsilon
+
+```bash
+# Focus on hard instances
+python experiments/analyze.py results.csv --difficulty hard
+
+# Use ε=2.0 for the heuristic comparison bar chart
+python experiments/analyze.py results.csv --fixed-eps 2.0
+
+# Save plots to a separate folder
+python experiments/analyze.py results.csv --out-dir report_figures/
+```
+
+---
+
+## What to Expect in the Results
+
+**Nodes expanded vs ε:**
+All three algorithms expand fewer nodes as ε grows (looser bound = easier search).
+Focal Search and EES should expand fewer nodes than Weighted A\* at tight bounds,
+because they prioritise nodes that appear closest to the goal.
+
+**Heuristic quality:**
+Stronger heuristics (LC > MD, PDB > LC on average) dramatically reduce node
+expansions across all algorithms. This is the main driver of performance.
+
+**EES on the standard 15-puzzle:**
+As the paper (Thayer & Ruml, 2011) predicts, EES carries overhead without
+a clear advantage here — because cost = distance in unit-cost domains,
+so EES's key strength (distinguishing cost from distance) doesn't apply.
+You should see EES competitive but not dominant over Weighted A\*.
+
+**Suboptimality ratio:**
+All three algorithms should always respect the bound
+(actual cost / optimal ≤ ε). Any violation would be a bug.
+
+**Solve rate:**
+With MD heuristic and ε=1.1, expect some timeouts on hard instances.
+With PDB, solve rate should be near 100% even on hard instances.
+
+---
+
+## Recommended Workflow for the Report
+
+1. Run smoke test to confirm everything works.
+2. Run `--no-pdb` for a quick full result (MD + LC only).
+3. Run with `--pdb-cache` overnight for the complete result set.
+4. Use `analyze.py` to generate all figures.
+5. The key research question to address:
+   **Does algorithm choice or heuristic quality matter more?**
+   Compare the gap between algorithms (within one heuristic row)
+   vs the gap between heuristics (within one algorithm column).
+   The heuristic gap is typically larger — that is itself a finding.
+
+---
+
+## Implementation Notes (for the report)
+
+- **Focal Search FOCAL bookkeeping:** when f_min rises, newly eligible nodes
+  must be admitted to FOCAL via a sweep of OPEN. A naive early-break on the
+  heap scan can silently drop nodes, causing missed solutions. Fixed by doing
+  a full scan below the new threshold.
+
+- **PDB wildcard moves:** the BFS must count only *group tile moves* toward
+  cost. Counting wildcard (non-group tile) moves inflates the heuristic above
+  the true distance, violating admissibility. Fixed by making wildcard moves
+  free in the abstract state space.
+
+- **Solvability formula:** for a 4×4 grid with goal (1..15, 0), a state is
+  reachable iff `(inversions + blank_row_from_bottom)` is **odd**
+  (not even, as some sources state — the parity depends on the specific goal).
+
+- **PDB vs Linear Conflict are incomparable:** PDB ≥ MD always, but PDB and LC
+  can be incomparable on individual states. Neither always dominates the other.
