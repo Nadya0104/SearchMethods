@@ -30,8 +30,6 @@ Notes on this implementation
     - ĥ  = same as h by default  (or a slightly inflated version)
     - d̂  = h by default          (distance ≈ cost in unit-cost domains)
   You can pass different callables for h_hat and d_hat.
-* The paper notes EES is not the fastest on unit-cost tiles (overhead
-  dominates), but it is still w-admissible and correct.
 """
 
 from __future__ import annotations
