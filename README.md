@@ -172,20 +172,8 @@ python experiments/analyze.py results.csv --skip-memory
 
 ## Results
 
-Figures below are from `experiments/results/`, generated with the full
-(PDB-included) experiment.
-
-<p align="center">
-  <img src="experiments/results/nodes_vs_epsilon.png" width="90%">
-</p>
-
-<p align="center">
-  <img src="experiments/results/heuristic_comparison.png" width="45%">
-  <img src="experiments/results/subopt_ratio.png" width="45%">
-</p>
-
 **Nodes expanded vs. ε.** All three algorithms expand fewer nodes as ε
-grows — a looser bound permits a greedier, cheaper search. Focal Search
+grows - a looser bound permits a greedier, cheaper search. Focal Search
 and EES expand fewer nodes than Weighted A\* at tight bounds, since both
 prioritize nodes that appear closer to the goal rather than nodes with
 low `f`.
@@ -194,13 +182,13 @@ low `f`.
 (LC > MD, PDB ≳ LC) reduce node expansions far more than switching
 algorithms does, across every ε tested. Comparing the heuristic gap
 (within a fixed algorithm) to the algorithm gap (within a fixed
-heuristic) is the central empirical question this project addresses —
+heuristic) is the central empirical question this project addresses -
 see [Recommended Analysis](#recommended-analysis-workflow) below.
 
 **EES on the 15-puzzle.** As predicted by Thayer & Ruml (2011), EES
 carries bookkeeping overhead without a decisive advantage in this
 domain, because cost = distance under unit-cost moves and EES's core
-mechanism — separating the two — collapses to what Focal Search already
+mechanism - separating the two - collapses to what Focal Search already
 does. EES is competitive with, but not dominant over, Weighted A\* here.
 
 **Suboptimality bound.** All three algorithms respect `cost / optimal ≤ ε`
