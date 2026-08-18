@@ -13,8 +13,11 @@ import pytest
 from domain.puzzle import GOAL_STATE, SIZE
 from domain.generator import generate_instance
 from heuristics.manhattan      import manhattan_distance
-from heuristics.linear_conflict import linear_conflict, _row_conflicts, _col_conflicts
-from heuristics.pdb            import DisjointPDB, DEFAULT_GROUPS, _make_key
+from heuristics.linear_conflict import (
+    linear_conflict, _row_conflicts, _col_conflicts,
+    _minimum_vertex_cover_size,
+)
+from heuristics.pdb            import DisjointPDB, DEFAULT_GROUPS, _make_key, _build_pdb
 from heuristics.d_hat          import inflated_d_hat, combined_d_hat, identity_d_hat
 from algorithms.weighted_astar  import weighted_astar
 from algorithms.focal_search    import focal_search
@@ -44,6 +47,12 @@ CONFLICT_STATE = tuple(CONFLICT_STATE)
 # ---------------------------------------------------------------------------
 
 class TestLinearConflict:
+
+    def test_minimum_vertex_cover_is_exact(self):
+        # A path of three edges has minimum vertex cover size two.
+        assert _minimum_vertex_cover_size(
+            4, [(0, 1), (1, 2), (2, 3)]
+        ) == 2
 
     def test_goal_is_zero(self):
         assert linear_conflict(GOAL_STATE) == 0
@@ -111,6 +120,18 @@ def pdb():
 
 
 class TestPDB:
+
+    def test_single_tile_pdb_matches_manhattan(self):
+        db = _build_pdb(frozenset({1}))
+        for diff in ("easy", "medium", "hard"):
+            for seed in range(5):
+                state = generate_instance(diff, seed=seed)
+                key = _make_key(state, [1])
+                position = state.index(1)
+                goal_position = GOAL_STATE.index(1)
+                row, col = divmod(position, SIZE)
+                goal_row, goal_col = divmod(goal_position, SIZE)
+                assert db[key] == abs(row - goal_row) + abs(col - goal_col)
 
     def test_goal_is_zero(self, pdb):
         assert pdb.heuristic(GOAL_STATE) == 0

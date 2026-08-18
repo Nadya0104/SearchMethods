@@ -19,7 +19,9 @@ import pandas as pd
 from domain.generator import generate_suite
 from heuristics.manhattan       import manhattan_distance
 from heuristics.linear_conflict import linear_conflict
-from experiments.harness import run_experiment, make_algorithms, EPSILONS
+from experiments.harness import (
+    run_experiment, make_algorithms, save_suite, load_suite, EPSILONS,
+)
 from experiments.analyze import (
     load, mean_ci, plot_metric_vs_epsilon, plot_heuristic_comparison,
     plot_solve_rate, print_summary,
@@ -64,6 +66,11 @@ def smoke_results(tmp_path_factory, smoke_suite, smoke_heuristics):
 # ---------------------------------------------------------------------------
 
 class TestHarness:
+
+    def test_suite_save_load_roundtrip(self, tmp_path, smoke_suite):
+        path = tmp_path / "suite.json"
+        save_suite(smoke_suite, path)
+        assert load_suite(path) == smoke_suite
 
     def test_returns_list(self, smoke_results):
         rows, _ = smoke_results
@@ -173,15 +180,17 @@ class TestAnalysis:
                 f"{col} is not numeric"
 
     def test_mean_ci_basic(self):
-        m, ci = mean_ci(pd.Series([1.0, 2.0, 3.0, 4.0, 5.0]))
-        assert abs(m - 3.0) < 1e-9
-        assert ci >= 0
+        m, err_low, err_high = mean_ci(pd.Series([1.0, 2.0, 3.0, 4.0, 5.0]))
+        assert m == pytest.approx((1 * 2 * 3 * 4 * 5) ** (1 / 5))
+        assert err_low >= 0
+        assert err_high >= 0
 
     def test_mean_ci_empty(self):
-        m, ci = mean_ci(pd.Series([], dtype=float))
+        m, err_low, err_high = mean_ci(pd.Series([], dtype=float))
         import math
         assert math.isnan(m)
-        assert ci == 0.0
+        assert err_low == 0.0
+        assert err_high == 0.0
 
     def test_plot_nodes_vs_epsilon(self, tmp_path):
         out = tmp_path / "nodes.png"

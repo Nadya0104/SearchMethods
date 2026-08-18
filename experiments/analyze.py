@@ -6,12 +6,12 @@ Reads the CSV produced by harness.py and generates:
   1. nodes_vs_epsilon.png   — nodes expanded vs ε, grouped by algorithm,
                                one subplot per heuristic
   2. time_vs_epsilon.png    — runtime vs ε, same layout
-  3. subopt_ratio.png       — actual suboptimality ratio vs ε (should stay ≤ ε)
+  3. subopt_ratio.png       — suboptimality ratio vs ε (should stay ≤ ε)
   4. pareto_nodes.png       — Pareto frontier: nodes expanded vs solution quality
   5. pareto_time.png        — Pareto frontier: runtime vs solution quality
   6. heuristic_comparison.png — nodes expanded by heuristic, at fixed ε
   7. solve_rate.png         — fraction of instances solved within timeout
-  8. memory_footprint.png   — resident memory per heuristic (requires a
+  8. memory_footprint.png   — Python allocations per heuristic (requires a
                                pre-built PDB cache; skipped if unavailable)
 
 Usage
@@ -195,7 +195,7 @@ def plot_metric_vs_epsilon(
 
 
 # ---------------------------------------------------------------------------
-# Plot 3: actual suboptimality ratio vs epsilon
+# Plot 3: suboptimality ratio vs epsilon
 # ---------------------------------------------------------------------------
 
 def plot_subopt_ratio(
@@ -217,7 +217,10 @@ def plot_subopt_ratio(
         sub_h = sub[sub["heuristic"] == h_name]
 
         # Draw the theoretical bound line
-        ax.plot(epsilons, epsilons, "k--", linewidth=1, label="bound ε", alpha=0.5)
+        ax.plot(
+            epsilons, epsilons, "k--", linewidth=1,
+            label="Theoretical bound ε", alpha=0.5,
+        )
 
         for algo in ["weighted_astar", "focal_search", "ees"]:
             sub_a = sub_h[sub_h["algo"] == algo]
@@ -245,9 +248,9 @@ def plot_subopt_ratio(
         ax.set_xticks(epsilons)
         ax.grid(True, alpha=0.3, linestyle="--")
 
-    axes[0].set_ylabel("Actual cost / optimal cost", fontsize=10)
+    axes[0].set_ylabel("Returned cost / optimal cost", fontsize=10)
     axes[-1].legend(fontsize=9)
-    fig.suptitle(f"Actual suboptimality ratio  [{difficulty} instances]",
+    fig.suptitle(f"Suboptimality ratio by ε  [{difficulty} instances]",
                  fontsize=13, y=1.02)
     fig.tight_layout()
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -270,8 +273,8 @@ def plot_pareto_frontier(
     memory_mb:  dict[str, float] | None = None,
 ) -> None:
     """
-    Pareto frontier: x = actual suboptimality ratio (mean), y = search effort
-    (mean). One panel per heuristic, one curve per algorithm, points
+    Pareto frontier: x = geometric-mean actual suboptimality ratio,
+    y = geometric-mean search effort. One panel per heuristic, one curve per algorithm, points
     connected in increasing-ε order and labeled with their ε value.
     Lower-left is better (cheap AND close to optimal); points on the
     lower-left envelope of a panel dominate the rest.
@@ -325,9 +328,9 @@ def plot_pareto_frontier(
         if memory_mb and h_name in memory_mb:
             mb = memory_mb[h_name]
             mem_label = f"{mb * 1024:.0f} KB" if mb < 1 else f"{mb:.0f} MB"
-            panel_title += f"\n({mem_label} resident)"
+            panel_title += f"\n({mem_label} allocated)"
         ax.set_title(panel_title, fontsize=11)
-        ax.set_xlabel("Actual suboptimality ratio (cost / optimal)", fontsize=9)
+        ax.set_xlabel("Returned cost / optimal cost", fontsize=9)
         if log_y:
             ax.set_yscale("log")
         ax.grid(True, which="both", alpha=0.3, linestyle="--")
@@ -335,7 +338,7 @@ def plot_pareto_frontier(
     axes[0].set_ylabel(ylabel, fontsize=10)
     axes[-1].legend(fontsize=9, loc="upper right")
     fig.suptitle(
-        f"{title}  [{difficulty} instances — labels show ε; lower-left is better]",
+        f"{title}  [{difficulty} instances]",
         fontsize=12, y=1.03,
     )
     fig.tight_layout()
@@ -352,7 +355,7 @@ def plot_heuristic_comparison(
     df:         pd.DataFrame,
     out_path:   Path,
     metric:     str = "nodes_expanded",
-    ylabel:     str = "Nodes expanded (mean)",
+    ylabel:     str = "Nodes expanded (geometric mean)",
     fixed_eps:  float = 1.5,
     difficulty: str = "medium",
 ) -> None:
@@ -467,7 +470,7 @@ def plot_solve_rate(
 
 
 # ---------------------------------------------------------------------------
-# Memory footprint — resident RAM per heuristic (independent of the CSV;
+# Memory footprint — traced Python allocations per heuristic (independent of the CSV;
 # measured directly by loading each heuristic's persistent data structures)
 # ---------------------------------------------------------------------------
 
@@ -496,7 +499,7 @@ def deep_getsizeof(obj, seen: set[int] | None = None) -> int:
 
 
 def measure_pdb_memory(cache_path: str | Path) -> tuple[float, float, int]:
-    """Return (resident_MB, disk_MB, n_entries) for the Disjoint PDB."""
+    """Return (allocated_MB, disk_MB, n_entries) for the Disjoint PDB."""
     from heuristics.pdb import DisjointPDB
 
     disk_bytes = Path(cache_path).stat().st_size
@@ -504,16 +507,16 @@ def measure_pdb_memory(cache_path: str | Path) -> tuple[float, float, int]:
     gc.collect()
     tracemalloc.start()
     pdb = DisjointPDB.load(cache_path)
-    resident_bytes, _peak_bytes = tracemalloc.get_traced_memory()
+    allocated_bytes, _peak_bytes = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
     n_entries = sum(len(d) for d in pdb._dbs)
-    return resident_bytes / (1024 ** 2), disk_bytes / (1024 ** 2), n_entries
+    return allocated_bytes / (1024 ** 2), disk_bytes / (1024 ** 2), n_entries
 
 
 def measure_memory_footprint(pdb_cache: str | Path) -> dict[str, float]:
     """
-    Measure resident memory (MB) for each heuristic, keyed the same way as
+    Measure traced Python allocations (MB) for each heuristic, keyed the same way as
     the CSV's `heuristic` column so the result can feed straight into the
     Pareto plots' `memory_mb` annotation.
 
@@ -521,9 +524,9 @@ def measure_memory_footprint(pdb_cache: str | Path) -> dict[str, float]:
     of their own -- both only read domain.puzzle.GOAL_POS, a 16-entry dict
     shared by the whole project (KB-scale). The Disjoint PDB holds three
     large dict-based lookup tables (millions of entries) that must stay
-    resident for O(1) heuristic lookups -- that is measured directly via
-    tracemalloc around DisjointPDB.load(), which captures real bytes
-    allocated, not a theoretical estimate.
+    available for O(1) heuristic lookups. `tracemalloc` measures the Python
+    allocations made while loading them; this is not an operating-system RSS
+    measurement.
     """
     from domain.puzzle import GOAL_POS
 
@@ -532,7 +535,7 @@ def measure_memory_footprint(pdb_cache: str | Path) -> dict[str, float]:
 
     print(f"  Manhattan Distance : {md_lc_mb * 1024:.2f} KB  (GOAL_POS lookup table)")
     print(f"  Linear Conflict    : {md_lc_mb * 1024:.2f} KB  (same GOAL_POS table)")
-    print(f"  Pattern Database   : {pdb_mb:.1f} MB resident  "
+    print(f"  Pattern Database   : {pdb_mb:.1f} MB allocated  "
           f"({disk_mb:.1f} MB on disk, {n_entries:,} entries)")
 
     return {"manhattan": md_lc_mb, "linear_conflict": md_lc_mb, "pdb": pdb_mb}
@@ -547,8 +550,8 @@ def plot_memory_footprint(memory_mb: dict[str, float], out_path: Path) -> None:
     fig, ax = plt.subplots(figsize=(7, 4.5))
     bars = ax.bar(labels, mem_mb, color=colors, alpha=0.85)
     ax.set_yscale("log")
-    ax.set_ylabel("Resident memory (MB, log scale)", fontsize=10)
-    ax.set_title("Heuristic memory footprint (resident RAM)", fontsize=12)
+    ax.set_ylabel("Allocated Python memory (MB, log scale)", fontsize=10)
+    ax.set_title("Heuristic memory footprint (tracemalloc)", fontsize=12)
     ax.grid(True, axis="y", alpha=0.3, linestyle="--")
 
     for bar, mb in zip(bars, mem_mb):
@@ -583,7 +586,7 @@ def print_summary(df: pd.DataFrame, difficulty: str = "medium") -> None:
     for h_name in heuristics:
         print(f"\nHeuristic: {HEURISTIC_LABELS.get(h_name, h_name)}")
         header = f"{'Algorithm':<18}" + "".join(f"  ε={e:<5}" for e in epsilons)
-        print(f"  {'':18}" + "  nodes_expanded (mean)")
+        print(f"  {'':18}" + "  nodes_expanded (geometric mean)")
         print("  " + header)
         print("  " + "-" * len(header))
 
@@ -652,13 +655,13 @@ def main() -> None:
     print("\nGenerating plots ...")
 
     plot_metric_vs_epsilon(
-        df, "nodes_expanded", "Nodes expanded (mean, log scale)",
+        df, "nodes_expanded", "Nodes expanded (geometric mean, log scale)",
         "Nodes expanded vs ε",
         out_dir / "nodes_vs_epsilon.png",
         difficulty=diff, log_y=True,
     )
     plot_metric_vs_epsilon(
-        df, "elapsed_ms", "Runtime ms (mean, log scale)",
+        df, "elapsed_ms", "Runtime ms (geometric mean, log scale)",
         "Runtime vs ε",
         out_dir / "time_vs_epsilon.png",
         difficulty=diff, log_y=True,
@@ -668,14 +671,14 @@ def main() -> None:
             df, out_dir / "subopt_ratio.png", difficulty=diff,
         )
         plot_pareto_frontier(
-            df, "nodes_expanded", "Nodes expanded (mean, log scale)",
-            "Pareto frontier: search effort vs solution quality",
+            df, "nodes_expanded", "Nodes expanded (geometric mean, log scale)",
+            "Nodes expanded vs. solution quality",
             out_dir / "pareto_nodes.png",
             difficulty=diff, log_y=True, memory_mb=memory_mb,
         )
         plot_pareto_frontier(
-            df, "elapsed_ms", "Runtime ms (mean, log scale)",
-            "Pareto frontier: wall-clock cost vs solution quality",
+            df, "elapsed_ms", "Runtime ms (geometric mean, log scale)",
+            "Runtime vs. solution quality",
             out_dir / "pareto_time.png",
             difficulty=diff, log_y=True, memory_mb=memory_mb,
         )

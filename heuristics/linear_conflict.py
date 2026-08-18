@@ -34,8 +34,8 @@ def _row_conflicts(state: tuple[int, ...]) -> int:
     Count the minimum number of tiles that must leave their goal row
     to resolve all linear conflicts in rows.
 
-    We use a greedy algorithm: repeatedly remove the tile involved in
-    the most conflicts until no conflicts remain.
+    Because a row contains at most four tiles, we enumerate all subsets
+    and return the exact minimum number of tiles covering every conflict.
     """
     total_removed = 0
 
@@ -51,37 +51,18 @@ def _row_conflicts(state: tuple[int, ...]) -> int:
             if goal_row == row:
                 row_tiles.append((col, goal_col))
 
-        # Build conflict counts: how many other tiles does each conflict with?
+        # Build the conflict graph.
         n = len(row_tiles)
-        conflicts = [0] * n
+        edges: list[tuple[int, int]] = []
         for i in range(n):
             for j in range(i + 1, n):
                 ci, gi = row_tiles[i]
                 cj, gj = row_tiles[j]
                 # Conflict: they are in reversed order relative to their goals
                 if (ci < cj and gi > gj) or (ci > cj and gi < gj):
-                    conflicts[i] += 1
-                    conflicts[j] += 1
+                    edges.append((i, j))
 
-        # Greedily remove the tile with the most conflicts
-        removed = [False] * n
-        while True:
-            max_c = max((c for c, r in zip(conflicts, removed) if not r), default=0)
-            if max_c == 0:
-                break
-            # Remove the tile with max conflicts
-            idx = next(i for i in range(n) if not removed[i] and conflicts[i] == max_c)
-            removed[idx] = True
-            total_removed += 1
-            # Update conflict counts
-            ci, gi = row_tiles[idx]
-            for j in range(n):
-                if removed[j]:
-                    continue
-                cj, gj = row_tiles[j]
-                if (ci < cj and gi > gj) or (ci > cj and gi < gj):
-                    conflicts[j] -= 1
-                    conflicts[idx] = 0  # already removed
+        total_removed += _minimum_vertex_cover_size(n, edges)
 
     return total_removed
 
@@ -104,33 +85,31 @@ def _col_conflicts(state: tuple[int, ...]) -> int:
                 col_tiles.append((row, goal_row))
 
         n = len(col_tiles)
-        conflicts = [0] * n
+        edges: list[tuple[int, int]] = []
         for i in range(n):
             for j in range(i + 1, n):
                 ri, gi = col_tiles[i]
                 rj, gj = col_tiles[j]
                 if (ri < rj and gi > gj) or (ri > rj and gi < gj):
-                    conflicts[i] += 1
-                    conflicts[j] += 1
+                    edges.append((i, j))
 
-        removed = [False] * n
-        while True:
-            max_c = max((c for c, r in zip(conflicts, removed) if not r), default=0)
-            if max_c == 0:
-                break
-            idx = next(i for i in range(n) if not removed[i] and conflicts[i] == max_c)
-            removed[idx] = True
-            total_removed += 1
-            ri, gi = col_tiles[idx]
-            for j in range(n):
-                if removed[j]:
-                    continue
-                rj, gj = col_tiles[j]
-                if (ri < rj and gi > gj) or (ri > rj and gi < gj):
-                    conflicts[j] -= 1
-                    conflicts[idx] = 0
+        total_removed += _minimum_vertex_cover_size(n, edges)
 
     return total_removed
+
+
+def _minimum_vertex_cover_size(
+    n_vertices: int,
+    edges: list[tuple[int, int]],
+) -> int:
+    """Return the exact minimum cover size for a graph of at most 4 vertices."""
+    for size in range(n_vertices + 1):
+        for mask in range(1 << n_vertices):
+            if mask.bit_count() != size:
+                continue
+            if all((mask & (1 << u)) or (mask & (1 << v)) for u, v in edges):
+                return size
+    raise AssertionError("Every finite graph has a vertex cover")
 
 
 # ---------------------------------------------------------------------------

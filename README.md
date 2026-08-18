@@ -44,7 +44,7 @@ puzzle a useful negative/control case, not just a convenient benchmark.
 
 - **Manhattan Distance (MD)** — sum of per-tile grid distances to the goal. Admissible, consistent, cheap.
 - **Linear Conflict (LC)** — MD plus a +2 penalty per pair of tiles that block each other in a shared row/column ([Hansson, Mayer & Yung, 1992](https://doi.org/10.1016/0004-3702(92)90015-3)). Strictly dominates MD.
-- **Pattern Database (PDB)** — exact goal-distances for disjoint 5-5-5 tile groups, precomputed by backward BFS from the goal and summed. Strictly dominates MD; incomparable with LC on individual states.
+- **Pattern Database (PDB)** — exact goal-distances for disjoint 5-5-5 tile groups, precomputed by backward 0-1 BFS from the goal and summed. Strictly dominates MD; incomparable with LC on individual states.
 
 ---
 
@@ -90,7 +90,7 @@ pip install -r requirements.txt  # pytest, matplotlib, pandas
 ## Tests
 
 ```bash
-python -m pytest tests/ -v          # all 80 tests, ~2 minutes
+python -m pytest tests/ -v          # all 84 tests, ~1 minute
 
 python -m pytest tests/test_phase1.py -v   # ~10s  — domain + algorithms
 python -m pytest tests/test_phase2.py -v   # ~60s  — heuristics (builds PDB)
@@ -158,7 +158,7 @@ python experiments/analyze.py experiments/results/results_<timestamp>.csv
 | `solve_rate.png` | Fraction of instances solved within the timeout |
 | `pareto_nodes.png` | Pareto frontier: nodes expanded vs. solution quality |
 | `pareto_time.png` | Pareto frontier: runtime vs. solution quality |
-| `memory_footprint.png` | Resident memory per heuristic (needs a built PDB cache; skipped otherwise) |
+| `memory_footprint.png` | Python allocations per heuristic measured with `tracemalloc` (needs a built PDB cache; skipped otherwise) |
 
 ```bash
 python experiments/analyze.py results.csv --difficulty hard       # restrict to hard instances
@@ -219,7 +219,7 @@ With the PDB heuristic, solve rate is near 100% even on hard instances.
   nodes must be admitted to FOCAL via a sweep of OPEN. A naive early-break
   on the heap scan can silently drop nodes and produce missed solutions;
   fixed by doing a full scan below the new threshold.
-- **PDB wildcard moves.** The backward BFS must count only *group-tile*
+- **PDB wildcard moves.** The backward 0-1 BFS must count only *group-tile*
   moves toward cost. Counting wildcard (non-group) tile moves inflates
   the heuristic above the true distance, violating admissibility; fixed
   by making wildcard moves free in the abstract state space.

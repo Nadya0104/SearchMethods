@@ -102,6 +102,11 @@ class TestGenerator:
         assert len(suite["medium"]) == 3
         assert len(suite["hard"])   == 3
 
+    def test_suite_seed_mapping_is_stable(self):
+        first = generate_suite(n_easy=2, n_medium=2, n_hard=2, base_seed=17)
+        second = generate_suite(n_easy=2, n_medium=2, n_hard=2, base_seed=17)
+        assert first == second
+
 
 # ---------------------------------------------------------------------------
 # Heuristic tests

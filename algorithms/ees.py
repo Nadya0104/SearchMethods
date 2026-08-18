@@ -92,13 +92,16 @@ def ees(
 
     g_table:   dict[tuple[int, ...], int]                     = {start: 0}
     came_from: dict[tuple[int, ...], tuple[int, ...] | None]  = {start: None}
+    open_states: set[tuple[int, ...]] = {start}
+    in_focal: set[tuple[tuple[int, ...], int]] = {(start, 0)}
+    focal_threshold = weight * fhat0
 
     nodes_expanded  = 0
     nodes_generated = 1
 
     def _valid(g: int, state: tuple[int, ...]) -> bool:
         """Check whether a heap entry is still current."""
-        return g_table.get(state) == g
+        return state in open_states and g_table.get(state) == g
 
     def _peek_valid(heap: list) -> tuple | None:
         """Return front of heap, skipping stale entries. Returns None if empty."""
@@ -131,11 +134,24 @@ def ees(
         fhat_bestfhat = top_open[0]         # f̂ of bestfhat
 
         # ── selectNode ───────────────────────────────────────────────
-        # Rebuild focal: it should contain all open nodes with
-        # f̂(n) ≤ w * f̂(bestfhat).  We use lazy addition:
-        # nodes are added to focal when they are generated (if eligible),
-        # and we check eligibility again when we pop from focal.
-        focal_threshold = weight * fhat_bestfhat
+        # Rebuild FOCAL whenever its threshold changes. This admits nodes
+        # generated under an earlier, tighter threshold and also handles a
+        # decreasing threshold when a non-consistent h_hat is supplied.
+        new_focal_threshold = weight * fhat_bestfhat
+        if new_focal_threshold != focal_threshold:
+            focal_threshold = new_focal_threshold
+            focal_heap = []
+            in_focal.clear()
+            for fhat_entry, g_entry, state_entry in open_heap:
+                focal_key = (state_entry, g_entry)
+                if (_valid(g_entry, state_entry)
+                        and fhat_entry <= focal_threshold
+                        and focal_key not in in_focal):
+                    heapq.heappush(
+                        focal_heap,
+                        (d_hat(state_entry), g_entry, state_entry),
+                    )
+                    in_focal.add(focal_key)
 
         # Try bestd (front of focal)
         selected_state = None
@@ -144,11 +160,19 @@ def ees(
 
         # Check bestd
         top_focal = _peek_valid(focal_heap)
+        while top_focal is not None:
+            focal_fhat = top_focal[1] + h_hat(top_focal[2])
+            if focal_fhat <= focal_threshold:
+                break
+            _, stale_g, stale_state = heapq.heappop(focal_heap)
+            in_focal.discard((stale_state, stale_g))
+            top_focal = _peek_valid(focal_heap)
         if top_focal is not None:
             fhat_of_bestd = top_focal[1] + h_hat(top_focal[2])  # g + ĥ
             if fhat_of_bestd <= weight * f_bestf:
                 # Use bestd
                 _, g, state = heapq.heappop(focal_heap)
+                in_focal.discard((state, g))
                 if _valid(g, state):
                     selected_state = state
                     selected_g     = g
@@ -179,6 +203,8 @@ def ees(
         if selected_state is None:
             break
 
+        open_states.discard(selected_state)
+
         # ── Expand selected node ──────────────────────────────────────
         nodes_expanded += 1
         state = selected_state
@@ -202,6 +228,7 @@ def ees(
                 g_table[neighbor]   = new_g
                 came_from[neighbor] = state
                 nodes_generated    += 1
+                open_states.add(neighbor)
 
                 h_nb    = h(neighbor)
                 hhat_nb = h_hat(neighbor)
@@ -213,8 +240,10 @@ def ees(
                 heapq.heappush(open_heap,    (fhat_nb, new_g, neighbor))
 
                 # Add to focal only if within threshold
-                if fhat_nb <= focal_threshold:
+                focal_key = (neighbor, new_g)
+                if fhat_nb <= focal_threshold and focal_key not in in_focal:
                     heapq.heappush(focal_heap, (dhat_nb, new_g, neighbor))
+                    in_focal.add(focal_key)
 
     return {
         "solved":          False,

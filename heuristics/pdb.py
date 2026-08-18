@@ -16,10 +16,11 @@ We use the classic 5-5-5 partition of the 15 tiles:
     Group B:  tiles { 6,  7,  8,  9, 10}
     Group C:  tiles {11, 12, 13, 14, 15}
 
-Each database is built by a *backwards BFS* from the goal using a
+Each database is built by a *backwards 0-1 BFS* from the goal using a
 compact state encoding:
     (blank_pos, pos_tile_t0, pos_tile_t1, ..., pos_tile_tk)
-This avoids storing the full 16-cell board and keeps memory < 50 MB total.
+This avoids storing the full 16-cell board, although Python dictionary
+overhead still makes the full 5-5-5 cache memory-intensive.
 
 State space size for k=5 group tiles:
     P(16, 6) = 16 × 15 × 14 × 13 × 12 × 11 = 5,765,760 entries per DB
@@ -73,19 +74,19 @@ _NEIGHBOURS = _build_neighbours()
 
 
 # ---------------------------------------------------------------------------
-# BFS builder  (compact encoding)
+# 0-1 BFS builder  (compact encoding)
 # ---------------------------------------------------------------------------
 
 def _build_pdb(group: frozenset[int]) -> dict[tuple[int, ...], int]:
     """
-    Build a PDB for *group* via backwards BFS from the goal.
+    Build a PDB for *group* via backwards 0-1 BFS from the goal.
 
     State encoding: (blank_pos, pos_t0, pos_t1, ..., pos_tk)
     where t0 < t1 < ... tk is the sorted group order.
 
     Expansion: the blank can move into any neighbour.
       - Neighbour holds a group tile → that tile moves to blank's old pos.
-      - Neighbour holds a wildcard   → blank moves freely (still costs 1).
+      - Neighbour holds a wildcard   → blank moves freely (cost 0).
 
     This compact representation keeps memory ~50 MB for three 5-tile groups.
     """
@@ -109,6 +110,8 @@ def _build_pdb(group: frozenset[int]) -> dict[tuple[int, ...], int]:
 
     while queue:
         enc, cost = queue.popleft()
+        if db.get(enc) != cost:
+            continue
         blank_pos = enc[0]
 
         # Build position → enc_index map for group tiles
@@ -125,16 +128,21 @@ def _build_pdb(group: frozenset[int]) -> dict[tuple[int, ...], int]:
                 # This counts as a move (cost += 1)
                 enc_idx = pos_to_enc_idx[nb]
                 new_enc[enc_idx] = blank_pos
+                move_cost = 1
                 new_cost = cost + 1
             else:
                 # Wildcard tile at nb — blank slides through for FREE
                 # (disjoint PDB: only group tile moves count)
+                move_cost = 0
                 new_cost = cost
 
             child = tuple(new_enc)
-            if child not in db:
+            if new_cost < db.get(child, float("inf")):
                 db[child] = new_cost
-                queue.append((child, new_cost))
+                if move_cost == 0:
+                    queue.appendleft((child, new_cost))
+                else:
+                    queue.append((child, new_cost))
 
     return db
 
@@ -149,7 +157,7 @@ def _make_key(
 ) -> tuple[int, ...]:
     """
     Produce the compact encoding key for *state* given a sorted tile group.
-    Must match the encoding used during BFS.
+    Must match the encoding used during 0-1 BFS.
     """
     k = len(sorted_group)
     enc = [0] * (k + 1)
@@ -221,7 +229,7 @@ class DisjointPDB:
 
     @classmethod
     def load(cls, path: str | Path) -> "DisjointPDB":
-        """Load a previously saved PDB from disk (skips BFS build)."""
+        """Load a previously saved PDB from disk (skips the 0-1 BFS build)."""
         with open(path, "rb") as f:
             data = pickle.load(f)
         obj = cls.__new__(cls)

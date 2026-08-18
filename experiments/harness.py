@@ -35,6 +35,7 @@ Usage
 from __future__ import annotations
 import argparse
 import csv
+import json
 import sys
 import os
 import time
@@ -68,6 +69,27 @@ DEFAULT_N = 20
 
 # Output directory
 RESULTS_DIR = Path(__file__).parent / "results"
+
+
+def save_suite(
+    suite: dict[str, list[tuple[int, ...]]],
+    path: str | Path,
+) -> None:
+    """Persist the exact experimental states in a portable JSON file."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {difficulty: [list(state) for state in states]
+               for difficulty, states in suite.items()}
+    with open(path, "w", encoding="utf-8") as suite_file:
+        json.dump(payload, suite_file, indent=2)
+
+
+def load_suite(path: str | Path) -> dict[str, list[tuple[int, ...]]]:
+    """Load an exact suite previously written by :func:`save_suite`."""
+    with open(path, encoding="utf-8") as suite_file:
+        payload = json.load(suite_file)
+    return {difficulty: [tuple(state) for state in states]
+            for difficulty, states in payload.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +198,7 @@ def run_experiment(
                             print(f"  {diff}[{idx}] optimal={status}")
 
         # Main experiment loop
-        total = (len(heuristics) * len(epsilons) *
+        total = (3 * len(heuristics) * len(epsilons) *
                  sum(len(v) for v in suite.values()))
         done = 0
 
@@ -267,10 +289,24 @@ def main() -> None:
         "--seed", type=int, default=42,
         help="Base random seed for instance generation"
     )
+    parser.add_argument(
+        "--suite-input", type=str, default=None,
+        help="Load exact instances from a JSON suite instead of generating them"
+    )
+    parser.add_argument(
+        "--suite-output", type=str, default=None,
+        help="Save the exact generated/loaded instances to this JSON file"
+    )
     args = parser.parse_args()
 
     # ── Build suite ──────────────────────────────────────────────────────
-    if args.smoke:
+    if args.suite_input:
+        suite = load_suite(args.suite_input)
+        use_pdb = not args.no_pdb and not args.smoke
+        compute_opt = not args.no_optimal
+        opt_timeout = 20.0 if args.smoke else 30.0
+        print(f"Loaded fixed instance suite from {args.suite_input}")
+    elif args.smoke:
         suite = generate_suite(n_easy=3, n_medium=3, n_hard=0, base_seed=args.seed)
         suite.pop("hard", None)
         use_pdb    = False
@@ -287,6 +323,10 @@ def main() -> None:
         use_pdb    = not args.no_pdb
         compute_opt = not args.no_optimal
         opt_timeout = 30.0
+
+    if args.suite_output:
+        save_suite(suite, args.suite_output)
+        print(f"Saved fixed instance suite to {args.suite_output}")
 
     # ── Build heuristics ──────────────────────────────────────────────────
     heuristics: dict[str, Callable] = {

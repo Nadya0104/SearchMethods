@@ -19,9 +19,8 @@ The tricky part is keeping FOCAL in sync when f_min rises:
   - When f_min rises (because the old f_min node was expanded or re-discovered),
     we do a targeted sweep of OPEN to admit newly eligible nodes into FOCAL.
 
-The sweep iterates the open heap and adds nodes with f ≤ new_threshold.
-Because the heap is a min-heap on f, we can stop as soon as f > new_threshold.
-Stale entries are skipped during the sweep.
+The sweep scans the lazy-deletion heap and adds every valid OPEN node with
+f ≤ new_threshold. Expanded and stale entries are ignored explicitly.
 """
 
 from __future__ import annotations
@@ -68,6 +67,7 @@ def focal_search(
 
     # Best known g for each state
     g_table: dict[tuple[int, ...], int | float] = {start: 0}
+    open_states: set[tuple[int, ...]] = {start}
 
     # Path reconstruction
     came_from: dict[tuple[int, ...], tuple[int, ...] | None] = {start: None}
@@ -77,7 +77,7 @@ def focal_search(
     focal_threshold: float = weight * f_min
 
     # Track which states are currently in focal (to avoid duplicate pushes)
-    in_focal: set[tuple[int, ...]] = {start}
+    in_focal: set[tuple[tuple[int, ...], int | float]] = {(start, 0)}
 
     nodes_expanded  = 0
     nodes_generated = 1
@@ -86,7 +86,7 @@ def focal_search(
         """Peek at OPEN, skipping stale entries, return current f_min."""
         while open_heap:
             f, g, s = open_heap[0]
-            if g_table.get(s) == g:   # valid entry
+            if s in open_states and g_table.get(s) == g:
                 return float(f)
             heapq.heappop(open_heap)
         return float("inf")
@@ -109,10 +109,11 @@ def focal_search(
                 # For correctness we do a full scan; for large instances
                 # this is still fast because FOCAL is small relative to OPEN.
                 continue
-            if g_table.get(s) == g and s not in in_focal:
+            if (s in open_states and g_table.get(s) == g
+                    and (s, g) not in in_focal):
                 d_val = d(s)
                 heapq.heappush(focal_heap, (d_val, g, s))
-                in_focal.add(s)
+                in_focal.add((s, g))
 
     # ------------------------------------------------------------------
     # Main loop
@@ -140,10 +141,10 @@ def focal_search(
         g     = None
         while focal_heap:
             d_val, g_entry, s = heapq.heappop(focal_heap)
-            in_focal.discard(s)
+            in_focal.discard((s, g_entry))
 
             # Skip stale entries
-            if g_table.get(s) != g_entry:
+            if s not in open_states or g_table.get(s) != g_entry:
                 continue
 
             # Re-check threshold (f_min may have moved while this sat in heap)
@@ -166,13 +167,17 @@ def focal_search(
             if new_f_min == float("inf"):
                 break
             f_top, g_top, s_top = open_heap[0]
-            while open_heap and g_table.get(open_heap[0][2]) != open_heap[0][1]:
+            while (open_heap and
+                   (open_heap[0][2] not in open_states or
+                    g_table.get(open_heap[0][2]) != open_heap[0][1])):
                 heapq.heappop(open_heap)
             if not open_heap:
                 break
             f_top, g_top, s_top = heapq.heappop(open_heap)
             state = s_top
             g     = g_top
+
+        open_states.discard(state)
 
         # ── Expand ────────────────────────────────────────────────────
         nodes_expanded += 1
@@ -195,14 +200,16 @@ def focal_search(
                 g_table[neighbor]    = new_g
                 came_from[neighbor]  = state
                 nodes_generated     += 1
+                open_states.add(neighbor)
 
                 f_nb = new_g + h(neighbor)
                 heapq.heappush(open_heap, (f_nb, new_g, neighbor))
 
-                if f_nb <= focal_threshold + 1e-9 and neighbor not in in_focal:
+                focal_key = (neighbor, new_g)
+                if f_nb <= focal_threshold + 1e-9 and focal_key not in in_focal:
                     d_nb = d(neighbor)
                     heapq.heappush(focal_heap, (d_nb, new_g, neighbor))
-                    in_focal.add(neighbor)
+                    in_focal.add(focal_key)
 
     return {
         "solved":          False,

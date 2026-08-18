@@ -34,6 +34,12 @@ WALK_RANGES: dict[Difficulty, tuple[int, int]] = {
     "hard":   (50, 80),
 }
 
+SEED_OFFSETS: dict[Difficulty, int] = {
+    "easy": 0,
+    "medium": 10_000,
+    "hard": 20_000,
+}
+
 
 # ---------------------------------------------------------------------------
 # Core generator
@@ -95,6 +101,6 @@ def generate_suite(
     counts = {"easy": n_easy, "medium": n_medium, "hard": n_hard}
     for diff, n in counts.items():
         for i in range(n):
-            seed = base_seed + hash(diff) + i   # unique but reproducible
+            seed = base_seed + SEED_OFFSETS[diff] + i
             suite[diff].append(generate_instance(diff, seed=seed))  # type: ignore[arg-type]
     return suite
